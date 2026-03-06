@@ -631,34 +631,27 @@ def cash_movement():
 def reports_view():
     current_business_day = get_business_day()
     current_month = current_business_day[:7]
-    sales = query("SELECT * FROM orders WHERE status='pagada' AND business_day = ? ORDER BY id DESC", (current_business_day,))
+
+    sales = query(
+        "SELECT * FROM orders WHERE status='pagada' AND business_day = ? ORDER BY id DESC",
+        (current_business_day,),
+    )
     total_sales = sum(float(s["total"]) for s in sales)
     cash_total = sum(float(s["cash_amount"] or 0) for s in sales)
     card_total = sum(float(s["card_amount"] or 0) for s in sales)
- 
-month_sales = query(
-    "SELECT COALESCE(SUM(total), 0) AS total FROM orders WHERE status='pagada' AND business_day LIKE ?",
-    (f"{current_month}%",),
-    one=True,
-)["total"]
 
-waiter_stats = query(
-    "SELECT waiter_name, COUNT(*) AS orders_count, COALESCE(SUM(total),0) AS total FROM orders WHERE status='pagada' AND business_day = ? GROUP BY waiter_name ORDER BY total DESC",
-    (current_business_day,),
-)
+    month_sales = query(
+        "SELECT COALESCE(SUM(total), 0) AS total FROM orders WHERE status='pagada' AND business_day LIKE ?",
+        (f"{current_month}%",),
+        one=True,
+    )["total"]
 
-top_products = query(
-    """
-    SELECT item_name, SUM(qty) AS qty
-    FROM order_items oi
-    JOIN orders o ON o.id = oi.order_id
-    WHERE o.status='pagada' AND o.business_day = ?
-    GROUP BY item_name
-    ORDER BY qty DESC, item_name ASC
-    LIMIT 10
-    """,
-    (current_business_day,),
-)
+    waiter_stats = query(
+        "SELECT waiter_name, COUNT(*) AS orders_count, COALESCE(SUM(total),0) AS total "
+        "FROM orders WHERE status='pagada' AND business_day = ? "
+        "GROUP BY waiter_name ORDER BY total DESC",
+        (current_business_day,),
+    )
 
     top_products = query(
         """
@@ -676,9 +669,65 @@ top_products = query(
     closures = []
 
     content = """
-    ...
-    """
+    <div class="grid g3">
+      <div class="card"><h3>Ventas del día</h3><div class="kpi">{{ money(total_sales) }}</div></div>
+      <div class="card"><h3>Órdenes pagadas</h3><div class="kpi">{{ sales|length }}</div></div>
+      <div class="card"><h3>Ventas del mes</h3><div class="kpi">{{ money(month_sales) }}</div></div>
+    </div>
 
+    <div class="grid g3" style="margin-top:16px">
+      <div class="card"><h3>Efectivo del día</h3><div class="kpi">{{ money(cash_total) }}</div></div>
+      <div class="card"><h3>Tarjeta del día</h3><div class="kpi">{{ money(card_total) }}</div></div>
+      <div class="card"><h3>Día actual</h3><div class="kpi">{{ format_business_day(current_business_day) }}</div></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Productos más vendidos</h3>
+        <table>
+          <tr><th>Producto</th><th class="right">Cantidad</th></tr>
+          {% for p in top_products %}
+            <tr><td>{{ p['item_name'] }}</td><td class="right">{{ p['qty'] }}</td></tr>
+          {% else %}
+            <tr><td colspan="2" class="muted">Sin ventas todavía.</td></tr>
+          {% endfor %}
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Control de meseros</h3>
+        <table>
+          <tr><th>Mesero</th><th class="right">Órdenes</th><th class="right">Total</th></tr>
+          {% for w in waiter_stats %}
+            <tr>
+              <td>{{ w['waiter_name'] }}</td>
+              <td class="right">{{ w['orders_count'] }}</td>
+              <td class="right">{{ money(w['total']) }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" class="muted">Sin datos hoy.</td></tr>
+          {% endfor %}
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Ventas cobradas hoy</h3>
+      <table>
+        <tr><th>Mesa</th><th>Mesero</th><th>Fecha</th><th class="right">Total</th></tr>
+        {% for s in sales %}
+          <tr>
+            <td>Mesa {{ s['table_number'] }}</td>
+            <td>{{ s['waiter_name'] }}</td>
+            <td>{{ s['paid_at'] }}</td>
+            <td class="right">{{ money(s['total']) }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="muted">Aún no hay ventas pagadas hoy.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    """
     return render_page(
         content,
         "reportes",
