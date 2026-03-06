@@ -648,17 +648,20 @@ def reports_view():
     )
     top_products = query(
         """
-        SELECT item_name, SUM(qty) AS qty
-        FROM order_items oi
-        JOIN orders o ON o.id = oi.order_id
-        WHERE o.status='pagada' AND o.business_day = ?
-        GROUP BY item_name
-        ORDER BY qty DESC, item_name ASC
-        LIMIT 10
-        """,
-        (current_business_day,),
-    )
-    content = """
+     SELECT item_name, SUM(qty) AS qty
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    WHERE o.status='pagada' AND o.business_day = ?
+    GROUP BY item_name
+    ORDER BY qty DESC, item_name ASC
+    LIMIT 10
+    """,
+    (current_business_day,),
+)
+
+closures = []
+
+content = """
     <div class="grid g3">
       <div class="card"><h3>Ventas del día</h3><div class="kpi">{{ money(total_sales) }}</div></div>
       <div class="card"><h3>Órdenes pagadas</h3><div class="kpi">{{ sales|length }}</div></div>
