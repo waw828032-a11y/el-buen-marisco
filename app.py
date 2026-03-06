@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any
 from flask import Flask, g, redirect, render_template_string, request, url_for, flash
@@ -176,6 +176,10 @@ def init_db() -> None:
             sent_at TEXT,
             ready_at TEXT,
             paid_at TEXT,
+            business_day TEXT,
+            payment_method TEXT,
+            cash_amount REAL NOT NULL DEFAULT 0,
+            card_amount REAL NOT NULL DEFAULT 0,
             total REAL NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS order_items (
@@ -194,8 +198,34 @@ def init_db() -> None:
             kind TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS day_closures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_day TEXT NOT NULL UNIQUE,
+            total_sales REAL NOT NULL DEFAULT 0,
+            orders_count INTEGER NOT NULL DEFAULT 0,
+            cash_total REAL NOT NULL DEFAULT 0,
+            card_total REAL NOT NULL DEFAULT 0,
+            closed_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS app_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         """
     )
+    columns = {row[1] for row in db.execute("PRAGMA table_info(orders)").fetchall()}
+    if "business_day" not in columns:
+        db.execute("ALTER TABLE orders ADD COLUMN business_day TEXT")
+    if "payment_method" not in columns:
+        db.execute("ALTER TABLE orders ADD COLUMN payment_method TEXT")
+    if "cash_amount" not in columns:
+        db.execute("ALTER TABLE orders ADD COLUMN cash_amount REAL NOT NULL DEFAULT 0")
+    if "card_amount" not in columns:
+        db.execute("ALTER TABLE orders ADD COLUMN card_amount REAL NOT NULL DEFAULT 0")
+    state_exists = db.execute("SELECT value FROM app_state WHERE key = 'current_business_day'").fetchone()
+    if not state_exists:
+        db.execute("INSERT INTO app_state (key, value) VALUES (?, ?)", ("current_business_day", date.today().isoformat()))
+    db.execute("UPDATE orders SET business_day = substr(created_at, 1, 10) WHERE business_day IS NULL OR business_day = ''")
     count = db.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0]
     if count == 0:
         db.executemany("INSERT INTO menu_items (category, name, price) VALUES (?, ?, ?)", MENU)
@@ -211,13 +241,34 @@ def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def get_business_day() -> str:
+    row = query("SELECT value FROM app_state WHERE key = 'current_business_day'", one=True)
+    return row["value"] if row else date.today().isoformat()
+
+
+def set_business_day(value: str) -> None:
+    existing = query("SELECT value FROM app_state WHERE key = 'current_business_day'", one=True)
+    if existing:
+        execute("UPDATE app_state SET value = ? WHERE key = 'current_business_day'", (value,))
+    else:
+        execute("INSERT INTO app_state (key, value) VALUES (?, ?)", ("current_business_day", value))
+
+
+def get_next_business_day(value: str) -> str:
+    return (datetime.strptime(value, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
+
+
 def money(value: float) -> str:
     return f"Q {value:,.2f}"
 
 
+def format_business_day(value: str) -> str:
+    return datetime.strptime(value, "%Y-%m-%d").strftime("%d/%m/%y")
+
+
 @app.context_processor
 def utility_processor():
-    return {"money": money}
+    return {"money": money, "format_business_day": format_business_day}
 
 
 def render_page(content: str, view: str, **ctx: Any):
@@ -253,6 +304,12 @@ def waiters_view():
     items = query("SELECT * FROM order_items WHERE order_id = ? ORDER BY id DESC", (order["id"],)) if order else []
     total = sum(float(i["price"]) * int(i["qty"]) for i in items)
     open_tables = query("SELECT table_number, waiter_name, total FROM orders WHERE status = 'abierta' ORDER BY table_number")
+    month_sales = query(
+        "SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS orders_count, COALESCE(SUM(cash_amount),0) AS cash_total, COALESCE(SUM(card_amount),0) AS card_total FROM orders WHERE status='pagada' AND business_day LIKE ?",
+        (f"{current_month}%",),
+        one=True,
+    )
+    closures = query("SELECT * FROM day_closures ORDER BY business_day DESC LIMIT 31")
     content = """
     <div class="grid g2">
       <div class="card">
@@ -339,8 +396,8 @@ def add_item():
     order = get_open_order(table_number)
     if not order:
         order_id = execute(
-            "INSERT INTO orders (table_number, waiter_name, created_at) VALUES (?, ?, ?)",
-            (table_number, waiter, now_str()),
+            "INSERT INTO orders (table_number, waiter_name, created_at, business_day) VALUES (?, ?, ?, ?)",
+            (table_number, waiter, now_str(), get_business_day()),
         )
     else:
         order_id = order["id"]
@@ -407,7 +464,7 @@ def kitchen_view():
     content = """
     <div class="card">
       <h3>Pedidos en cocina</h3>
-      <div class="grid g3">
+      <div class="row wrap" style="margin-bottom:12px"><div><span class="badge">Día actual: {{ format_business_day(current_business_day) }}</span> <span class="badge">Mes actual: {{ current_month }}</span></div><form method="post" action="{{ url_for('close_day') }}" style="display:inline"><button class="btn warn">Reiniciar ventas del día</button></form></div><div class="grid g3">
         {% for order in orders %}
           <div class="card">
             <div class="row"><strong>Mesa {{ order['table_number'] }}</strong><span class="status {% if order['status']=='lista' %}ready{% else %}pending{% endif %}">{{ order['status'] }}</span></div>
@@ -453,10 +510,14 @@ def cashier_view():
     orders = query("SELECT * FROM orders WHERE status IN ('enviada', 'lista') ORDER BY id DESC")
     incomes = query("SELECT COALESCE(SUM(amount),0) AS v FROM cash_movements WHERE kind='ingreso'", one=True)["v"]
     expenses = query("SELECT COALESCE(SUM(amount),0) AS v FROM cash_movements WHERE kind='egreso'", one=True)["v"]
+    current_business_day = get_business_day()
+    cash_sales_today = query("SELECT COALESCE(SUM(cash_amount),0) AS v FROM orders WHERE status='pagada' AND business_day = ?", (current_business_day,), one=True)["v"]
+    card_sales_today = query("SELECT COALESCE(SUM(card_amount),0) AS v FROM orders WHERE status='pagada' AND business_day = ?", (current_business_day,), one=True)["v"]
     content = """
     <div class="grid g2">
       <div class="card">
         <h3>Mesas pendientes de cobro</h3>
+        <div class="footer-note">Día de trabajo actual: {{ format_business_day(current_business_day) }}</div>
         <table>
           <tr><th>Mesa</th><th>Mesero</th><th>Estado</th><th>Total</th><th></th></tr>
           {% for order in orders %}
@@ -467,7 +528,23 @@ def cashier_view():
               <td>{{ money(order['total']) }}</td>
               <td class="right">
                 <a class="btn secondary" href="{{ url_for('print_bill', order_id=order['id']) }}" target="_blank">Imprimir</a>
-                <form method="post" action="{{ url_for('charge_order', order_id=order['id']) }}" style="display:inline"><button>Cobrar</button></form>
+                <form method="post" action="{{ url_for('charge_order', order_id=order['id']) }}" style="display:inline-block;margin-left:6px">
+                  <input type="hidden" name="metodo_pago" value="efectivo">
+                  <button class="btn ok">Efectivo</button>
+                </form>
+                <form method="post" action="{{ url_for('charge_order', order_id=order['id']) }}" style="display:inline-block;margin-left:6px">
+                  <input type="hidden" name="metodo_pago" value="tarjeta">
+                  <button>Tarjeta</button>
+                </form>
+                <details style="margin-top:8px">
+                  <summary class="small muted" style="cursor:pointer">Pago mixto</summary>
+                  <form method="post" action="{{ url_for('charge_order', order_id=order['id']) }}" class="stack" style="margin-top:8px">
+                    <input type="hidden" name="metodo_pago" value="mixto">
+                    <input type="number" name="monto_efectivo" step="0.01" min="0" placeholder="Monto efectivo">
+                    <input type="number" name="monto_tarjeta" step="0.01" min="0" placeholder="Monto tarjeta">
+                    <button class="btn warn">Cobrar mixto</button>
+                  </form>
+                </details>
               </td>
             </tr>
           {% else %}
@@ -480,6 +557,8 @@ def cashier_view():
           <h3>Control de caja</h3>
           <div class="row"><span>Ingresos</span><strong>{{ money(incomes) }}</strong></div>
           <div class="row"><span>Egresos</span><strong>{{ money(expenses) }}</strong></div>
+          <div class="row"><span>Cobrado en efectivo hoy</span><strong>{{ money(cash_sales_today) }}</strong></div>
+          <div class="row"><span>Cobrado en tarjeta hoy</span><strong>{{ money(card_sales_today) }}</strong></div>
           <div class="row" style="margin-top:10px"><span>Caja actual</span><span class="kpi">{{ money(incomes-expenses) }}</span></div>
         </div>
         <div class="card">
@@ -494,16 +573,36 @@ def cashier_view():
       </div>
     </div>
     """
-    return render_page(content, "caja", orders=orders, incomes=float(incomes), expenses=float(expenses))
+    return render_page(content, "caja", orders=orders, incomes=float(incomes), expenses=float(expenses), current_business_day=current_business_day, cash_sales_today=float(cash_sales_today), card_sales_today=float(card_sales_today))
 
 
 @app.post("/cobrar/<int:order_id>")
 def charge_order(order_id: int):
     order = query("SELECT * FROM orders WHERE id = ?", (order_id,), one=True)
-    execute("UPDATE orders SET status = 'pagada', paid_at = ? WHERE id = ?", (now_str(), order_id))
+    payment_method = request.form.get("metodo_pago", "efectivo")
+    total = float(order["total"])
+
+    if payment_method == "tarjeta":
+        cash_amount = 0.0
+        card_amount = total
+    elif payment_method == "mixto":
+        cash_amount = float(request.form.get("monto_efectivo") or 0)
+        card_amount = float(request.form.get("monto_tarjeta") or 0)
+        if round(cash_amount + card_amount, 2) != round(total, 2):
+            flash("En pago mixto, efectivo + tarjeta debe ser igual al total.")
+            return redirect(url_for("cashier_view"))
+    else:
+        payment_method = "efectivo"
+        cash_amount = total
+        card_amount = 0.0
+
+    execute(
+        "UPDATE orders SET status = 'pagada', paid_at = ?, payment_method = ?, cash_amount = ?, card_amount = ? WHERE id = ?",
+        (now_str(), payment_method, cash_amount, card_amount, order_id),
+    )
     execute(
         "INSERT INTO cash_movements (concept, amount, kind, created_at) VALUES (?, ?, 'ingreso', ?)",
-        (f"Cobro mesa {order['table_number']}", order["total"], now_str()),
+        (f"Cobro mesa {order['table_number']} ({payment_method})", total, now_str()),
     )
     flash(f"Mesa {order['table_number']} cobrada correctamente.")
     return redirect(url_for("cashier_view"))
@@ -524,30 +623,38 @@ def cash_movement():
 
 @app.route("/reportes")
 def reports_view():
-    today = date.today().isoformat()
-    sales = query("SELECT * FROM orders WHERE status='pagada' AND paid_at LIKE ? ORDER BY id DESC", (f"{today}%",))
+    current_business_day = get_business_day()
+    current_month = current_business_day[:7]
+    sales = query("SELECT * FROM orders WHERE status='pagada' AND business_day = ? ORDER BY id DESC", (current_business_day,))
     total_sales = sum(float(s["total"]) for s in sales)
+    cash_total = sum(float(s["cash_amount"] or 0) for s in sales)
+    card_total = sum(float(s["card_amount"] or 0) for s in sales)
     waiter_stats = query(
-        "SELECT waiter_name, COUNT(*) AS orders_count, COALESCE(SUM(total),0) AS total FROM orders WHERE status='pagada' AND paid_at LIKE ? GROUP BY waiter_name ORDER BY total DESC",
-        (f"{today}%",),
+        "SELECT waiter_name, COUNT(*) AS orders_count, COALESCE(SUM(total),0) AS total FROM orders WHERE status='pagada' AND business_day = ? GROUP BY waiter_name ORDER BY total DESC",
+        (current_business_day,),
     )
     top_products = query(
         """
         SELECT item_name, SUM(qty) AS qty
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
-        WHERE o.status='pagada' AND o.paid_at LIKE ?
+        WHERE o.status='pagada' AND o.business_day = ?
         GROUP BY item_name
         ORDER BY qty DESC, item_name ASC
         LIMIT 10
         """,
-        (f"{today}%",),
+        (current_business_day,),
     )
     content = """
     <div class="grid g3">
       <div class="card"><h3>Ventas del día</h3><div class="kpi">{{ money(total_sales) }}</div></div>
       <div class="card"><h3>Órdenes pagadas</h3><div class="kpi">{{ sales|length }}</div></div>
       <div class="card"><h3>Mesas atendidas</h3><div class="kpi">{{ sales|map(attribute='table_number')|list|unique|list|length }}</div></div>
+    </div>
+    <div class="grid g3" style="margin-top:16px">
+      <div class="card"><h3>Efectivo del día</h3><div class="kpi">{{ money(cash_total) }}</div></div>
+      <div class="card"><h3>Tarjeta del día</h3><div class="kpi">{{ money(card_total) }}</div></div>
+      <div class="card"><h3>Ventas del mes</h3><div class="kpi">{{ money(month_sales['total']) }}</div><div class="footer-note">Órdenes: {{ month_sales['orders_count'] }} · Efectivo: {{ money(month_sales['cash_total']) }} · Tarjeta: {{ money(month_sales['card_total']) }}</div></div>
     </div>
     <div class="grid g2" style="margin-top:16px">
       <div class="card">
@@ -562,12 +669,45 @@ def reports_view():
       </div>
     </div>
     <div class="card" style="margin-top:16px">
-      <h3>Ventas cobradas hoy</h3>
-      <table><tr><th>Mesa</th><th>Mesero</th><th>Fecha</th><th class="right">Total</th><th></th></tr>
-      {% for s in sales %}<tr><td>Mesa {{ s['table_number'] }}</td><td>{{ s['waiter_name'] }}</td><td>{{ s['paid_at'] }}</td><td class="right">{{ money(s['total']) }}</td><td class="right"><a class="btn secondary" href="{{ url_for('print_bill', order_id=s['id']) }}" target="_blank">Imprimir</a></td></tr>{% else %}<tr><td colspan="5" class="muted">Aún no hay ventas pagadas hoy.</td></tr>{% endfor %}</table>
+      <h3>Ventas cobradas del día</h3>
+      <table><tr><th>Mesa</th><th>Mesero</th><th>Fecha</th><th>Método</th><th class="right">Total</th><th></th></tr>
+      {% for s in sales %}<tr><td>Mesa {{ s['table_number'] }}</td><td>{{ s['waiter_name'] }}</td><td>{{ s['paid_at'] }}</td><td>{{ s['payment_method'] or 'efectivo' }}</td><td class="right">{{ money(s['total']) }}</td><td class="right"><a class="btn secondary" href="{{ url_for('print_bill', order_id=s['id']) }}" target="_blank">Imprimir</a></td></tr>{% else %}<tr><td colspan="6" class="muted">Aún no hay ventas pagadas hoy.</td></tr>{% endfor %}</table>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Historial de cierres diarios</h3>
+      <table><tr><th>Fecha</th><th class="right">Órdenes</th><th class="right">Efectivo</th><th class="right">Tarjeta</th><th class="right">Total</th></tr>
+      {% for c in closures %}<tr><td>{{ format_business_day(c['business_day']) }}</td><td class="right">{{ c['orders_count'] }}</td><td class="right">{{ money(c['cash_total']) }}</td><td class="right">{{ money(c['card_total']) }}</td><td class="right">{{ money(c['total_sales']) }}</td></tr>{% else %}<tr><td colspan="5" class="muted">Sin cierres aún.</td></tr>{% endfor %}</table>
     </div>
     """
-    return render_page(content, "reportes", sales=sales, total_sales=total_sales, top_products=top_products, waiter_stats=waiter_stats)
+    return render_page(content, "reportes", sales=sales, total_sales=total_sales, top_products=top_products, waiter_stats=waiter_stats, current_business_day=current_business_day, current_month=current_month, cash_total=cash_total, card_total=card_total, month_sales=month_sales, closures=closures)
+
+
+@app.post("/cerrar-dia")
+def close_day():
+    current_business_day = get_business_day()
+    sales = query("SELECT * FROM orders WHERE status='pagada' AND business_day = ?", (current_business_day,))
+    total_sales = sum(float(s["total"]) for s in sales)
+    cash_total = sum(float(s["cash_amount"] or 0) for s in sales)
+    card_total = sum(float(s["card_amount"] or 0) for s in sales)
+    orders_count = len(sales)
+
+    execute(
+        """
+        INSERT INTO day_closures (business_day, total_sales, orders_count, cash_total, card_total, closed_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(business_day) DO UPDATE SET
+            total_sales=excluded.total_sales,
+            orders_count=excluded.orders_count,
+            cash_total=excluded.cash_total,
+            card_total=excluded.card_total,
+            closed_at=excluded.closed_at
+        """,
+        (current_business_day, total_sales, orders_count, cash_total, card_total, now_str()),
+    )
+    next_day = get_next_business_day(current_business_day)
+    set_business_day(next_day)
+    flash(f"Se cerró el día {format_business_day(current_business_day)} y se abrió {format_business_day(next_day)}.")
+    return redirect(url_for("reports_view"))
 
 
 @app.route("/configurar")
@@ -605,7 +745,7 @@ def print_bill(order_id: int):
     html = """
     <!doctype html><html><head><meta charset="utf-8"><title>Cuenta Mesa {{ order['table_number'] }}</title>
     <style>body{font-family:Arial,sans-serif;padding:20px} .ticket{max-width:360px;margin:auto;border:1px dashed #333;padding:18px} h2{text-align:center;margin:0 0 8px} table{width:100%;border-collapse:collapse} td{padding:6px 0;border-bottom:1px solid #ddd;font-size:14px} .right{text-align:right} .total{font-size:22px;font-weight:700;text-align:right;margin-top:12px}</style>
-    </head><body onload="window.print()"><div class="ticket"><h2>El Buen Marisco</h2><div>Mesa: {{ order['table_number'] }}</div><div>Mesero: {{ order['waiter_name'] }}</div><div>Fecha: {{ order['paid_at'] or order['sent_at'] or order['created_at'] }}</div><hr><table>{% for i in items %}<tr><td>{{ i['qty'] }} x {{ i['item_name'] }}</td><td class="right">{{ money(i['qty']*i['price']) }}</td></tr>{% endfor %}</table><div class="total">TOTAL: {{ money(order['total']) }}</div></div></body></html>
+    </head><body onload="window.print()"><div class="ticket"><h2>El Buen Marisco</h2><div>Mesa: {{ order['table_number'] }}</div><div>Mesero: {{ order['waiter_name'] }}</div><div>Fecha: {{ order['paid_at'] or order['sent_at'] or order['created_at'] }}</div><div>Método: {{ order['payment_method'] or 'pendiente' }}</div><hr><table>{% for i in items %}<tr><td>{{ i['qty'] }} x {{ i['item_name'] }}</td><td class="right">{{ money(i['qty']*i['price']) }}</td></tr>{% endfor %}</table><div class="total">TOTAL: {{ money(order['total']) }}</div></div></body></html>
     """
     return render_template_string(html, order=order, items=items, money=money)
 
@@ -615,3 +755,4 @@ with app.app_context():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
