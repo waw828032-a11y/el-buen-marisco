@@ -262,9 +262,13 @@ def money(value: float) -> str:
     return f"Q {value:,.2f}"
 
 
-def format_business_day(value: str) -> str:
-    return datetime.strptime(value, "%Y-%m-%d").strftime("%d/%m/%y")
-
+def format_business_day(value):
+    if not value:
+        return "-"
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%d/%m/%y")
+    except ValueError:
+        return value
 
 @app.context_processor
 def utility_processor():
@@ -631,6 +635,13 @@ def reports_view():
     total_sales = sum(float(s["total"]) for s in sales)
     cash_total = sum(float(s["cash_amount"] or 0) for s in sales)
     card_total = sum(float(s["card_amount"] or 0) for s in sales)
+
+    month_sales = query(
+    "SELECT COALESCE(SUM(total), 0) AS total FROM orders WHERE status='pagada' AND business_day LIKE ?",
+    (f"{current_month}%",),
+    one=True,
+)["total"]
+    
     waiter_stats = query(
         "SELECT waiter_name, COUNT(*) AS orders_count, COALESCE(SUM(total),0) AS total FROM orders WHERE status='pagada' AND business_day = ? GROUP BY waiter_name ORDER BY total DESC",
         (current_business_day,),
