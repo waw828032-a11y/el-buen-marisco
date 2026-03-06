@@ -295,6 +295,8 @@ def index():
 
 @app.route("/meseros")
 def waiters_view():
+    current_month = datetime.now().strftime("%Y-%m")
+    
     table_number = int(request.args.get("mesa", 1))
     search = (request.args.get("buscar") or "").strip().lower()
     menu = query("SELECT * FROM menu_items WHERE active = 1 ORDER BY category, name")
