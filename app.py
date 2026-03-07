@@ -386,7 +386,13 @@ def meseros_view():
                 return redirect(url_for("meseros_view", ok=f"Pedido enviado a cocina para {table['name']}."))
         if not error:
             error = "No se pudo procesar la acción."
-    menu_by_category = grouped_menu()
+    menu_by_category = {}
+
+for item in config["menu"]:
+    category = item.get("category", "Menú")
+    if category not in menu_by_category:
+        menu_by_category[category] = []
+    menu_by_category[category].append(item)
     content = render_template_string("""
     <div class="grid">
       {% for table in tables %}
@@ -430,9 +436,9 @@ def meseros_view():
             <div class="form-group"><label>Cantidad</label><input type="number" name="qty" value="1" min="1" required></div>
             <button type="submit">Agregar producto</button>
           </form>
-          {% if table.items %}
+          {% if table["items"] %}
             <table><thead><tr><th>Producto</th><th>Cant.</th><th>Estado</th><th>Subtotal</th></tr></thead><tbody>
-              {% for item in table.items %}
+              {% for item in table["items"] %}
                 <tr>
                   <td>{{ item.name }}</td><td>{{ item.qty }}</td>
                   <td>{% if item.status == 'servido' %}<span class="badge ready">Listo</span>{% elif item.status == 'en_cocina' %}<span class="badge pending">En cocina</span>{% else %}<span class="badge busy">Pendiente</span>{% endif %}</td>
