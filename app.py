@@ -591,11 +591,11 @@ def caja_view():
                     return redirect(url_for("caja_view", ok=f"Venta cerrada correctamente en {sale['table_name']}."))
     open_tables = [t for t in tables if t["status"] == "Ocupada" and t["items"]]
     content = render_template_string("""
-    {% if open_tables %}<div class="grid">{% for table in open_tables %}
+   {% if open_tables %}<div class="grid">{% for table in open_tables %}
       <div class="card">
         <h3>{{ table.name }}</h3><p><strong>Mesero:</strong> {{ table.waiter }}</p><p><strong>Total:</strong> {{ money(table_total(table)) }}</p>
         <table><thead><tr><th>Producto</th><th>Cant.</th><th>Subtotal</th></tr></thead><tbody>
-        {% for item in table.items %}<tr><td>{{ item.name }}</td><td>{{ item.qty }}</td><td>{{ money(item_subtotal(item)) }}</td></tr>{% endfor %}
+        {% for item in table["items"] %}<tr><td>{{ item.name }}</td><td>{{ item.qty }}</td><td>{{ money(item_subtotal(item)) }}</td></tr>{% endfor %}
         </tbody></table>
         <div class="actions no-print"><a class="btn gray" href="{{ url_for('ticket_view', table_id=table.id) }}" target="_blank">Imprimir ticket</a></div>
         <form method="post" style="margin-top:12px">
