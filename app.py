@@ -392,12 +392,12 @@ def meseros_view():
 
     menu_by_category = {}
 
-for item in config["menu"]:
-    category = "Menú"
-    if category not in menu_by_category:
-        menu_by_category[category] = []
-    menu_by_category[category].append(item)
-    
+    for item in config["menu"]:
+        category = "Menú"
+        if category not in menu_by_category:
+            menu_by_category[category] = []
+        menu_by_category[category].append(item)
+
     content = render_template_string("""
     <div class="grid">
     {% for table in tables %}
