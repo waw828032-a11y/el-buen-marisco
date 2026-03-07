@@ -728,6 +728,7 @@ def reports_view():
       </table>
     </div>
     """
+
     return render_page(
         content,
         "reportes",
@@ -770,7 +771,8 @@ content = """
     </div>
     <div class="card" style="margin-top:16px">
       <h3>Ventas cobradas del día</h3>
-      <table><tr><th>Mesa</th><th>Mesero</th><th>Fecha</th><th>Método</th><th class="right">Total</th><th></th></tr>
+      <table>
+      <tr><th>Mesa</th><th>Mesero</th><th>Fecha</th><th>Método</th><th class="right">Total</th><th></th></tr>
       {% for s in sales %}<tr><td>Mesa {{ s['table_number'] }}</td><td>{{ s['waiter_name'] }}</td><td>{{ s['paid_at'] }}</td><td>{{ s['payment_method'] or 'efectivo' }}</td><td class="right">{{ money(s['total']) }}</td><td class="right"><a class="btn secondary" href="{{ url_for('print_bill', order_id=s['id']) }}" target="_blank">Imprimir</a></td></tr>{% else %}<tr><td colspan="6" class="muted">Aún no hay ventas pagadas hoy.</td></tr>{% endfor %}</table>
     </div>
     <div class="card" style="margin-top:16px">
@@ -779,7 +781,19 @@ content = """
       {% for c in closures %}<tr><td>{{ format_business_day(c['business_day']) }}</td><td class="right">{{ c['orders_count'] }}</td><td class="right">{{ money(c['cash_total']) }}</td><td class="right">{{ money(c['card_total']) }}</td><td class="right">{{ money(c['total_sales']) }}</td></tr>{% else %}<tr><td colspan="5" class="muted">Sin cierres aún.</td></tr>{% endfor %}</table>
     </div>
     """
-    return render_page(content, "reportes", sales=sales, total_sales=total_sales, top_products=top_products, waiter_stats=waiter_stats, current_business_day=current_business_day, current_month=current_month, cash_total=cash_total, card_total=card_total, month_sales=month_sales, closures=closures)
+    return render_page(
+        content,
+        "reportes", sales=sales, 
+        total_sales=total_sales, 
+        top_products=top_products, 
+        waiter_stats=waiter_stats, 
+        current_business_day=current_business_day, 
+        current_month=current_month,
+        cash_total=cash_total,
+        card_total=card_total, 
+        month_sales=month_sales, 
+        closures=closures,
+    )
 
 
 @app.post("/cerrar-dia")
