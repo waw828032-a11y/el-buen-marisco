@@ -311,13 +311,16 @@ def meseros_view():
     config = load_config()
     message = request.args.get("ok", "")
     error = request.args.get("err", "")
+
     if request.method == "POST":
         action = request.form.get("action", "")
         try:
             table_id = int(request.form.get("table_id", "0"))
         except ValueError:
             table_id = 0
+
         table = get_table_in_list(tables, table_id)
+
         if not table:
             error = "Mesa no encontrada."
         elif action == "open_table":
@@ -330,86 +333,90 @@ def meseros_view():
                 table["status"] = "Ocupada"
                 table["waiter"] = waiter
                 table["opened_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                table["sent_to_kitchen"] = False
                 table["items"] = []
+                table["sent_to_kitchen"] = False
                 save_tables(tables)
-                return redirect(url_for("meseros_view", ok=f"{table['name']} abierta correctamente."))
+                message = f"{table['name']} abierta correctamente."
+
         elif action == "add_item":
+            item_name = request.form.get("item_name", "").strip()
+            try:
+                qty = int(request.form.get("qty", "1"))
+            except ValueError:
+                qty = 0
+
+            menu_item = next((x for x in config["menu"] if x["name"] == item_name), None)
+
             if table["status"] != "Ocupada":
                 error = "Primero abre la mesa."
+            elif not menu_item:
+                error = "Producto no encontrado."
+            elif qty <= 0:
+                error = "Cantidad inválida."
             else:
-                item_name = request.form.get("item_name", "").strip()
-                try:
-                    qty = int(request.form.get("qty", "1"))
-                except ValueError:
-                    qty = 0
-                menu_item = next((m for m in config["menu"] if m["name"] == item_name), None)
-                if not menu_item:
-                    error = "Producto no encontrado."
-                elif qty <= 0:
-                    error = "Cantidad inválida."
+                existing = next((x for x in table["items"] if x["name"] == item_name and x["status"] == "pendiente"), None)
+                if existing:
+                    existing["qty"] += qty
                 else:
-                    existing = next((x for x in table["items"] if x["name"] == item_name and x.get("status", "pendiente") == "pendiente"), None)
-                    if existing:
-                        existing["qty"] += qty
-                    else:
-                        table["items"].append({
-                            "name": menu_item["name"],
-                            "price": float(menu_item["price"]),
-                            "qty": qty,
-                            "status": "pendiente",
-                            "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        })
-                    table["sent_to_kitchen"] = True
-                    save_tables(tables)
-                    return redirect(url_for("meseros_view", ok=f"Se agregó {qty} x {item_name} en {table['name']}."))
-        elif action == "remove_item":
-            item_name = request.form.get("item_name", "").strip()
-            before = len(table["items"])
-            table["items"] = [x for x in table["items"] if x["name"] != item_name]
-            if len(table["items"]) == before:
-                error = "Ese producto no estaba en la mesa."
-            else:
+                    table["items"].append({
+                        "name": menu_item["name"],
+                        "price": float(menu_item["price"]),
+                        "qty": qty,
+                        "status": "pendiente",
+                        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                table["sent_to_kitchen"] = True
                 save_tables(tables)
-                return redirect(url_for("meseros_view", ok=f"Se eliminó {item_name} de {table['name']}."))
+                message = f"Se agregó {qty} x {item_name}."
+
         elif action == "send_kitchen":
             if table["status"] != "Ocupada":
                 error = "La mesa no está ocupada."
             elif not table["items"]:
                 error = "No hay pedido para enviar."
             else:
-                for item in table["items"]:
-                    if item.get("status") == "pendiente":
-                        item["status"] = "en_cocina"
                 table["sent_to_kitchen"] = True
                 save_tables(tables)
-                return redirect(url_for("meseros_view", ok=f"Pedido enviado a cocina para {table['name']}."))
-        if not error:
-            error = "No se pudo procesar la acción."
-    menu_by_category = {}
+                message = f"Pedido enviado a cocina para {table['name']}."
 
-for item in config["menu"]:
-    category = item.get("category", "Menú")
-    if category not in menu_by_category:
-        menu_by_category[category] = []
-    menu_by_category[category].append(item)
+        else:
+            error = "No se pudo procesar la acción."
+
+    menu_by_category = {}
+    for item in config["menu"]:
+        category = item.get("category", "Menú")
+        if category not in menu_by_category:
+            menu_by_category[category] = []
+        menu_by_category[category].append(item)
+
     content = render_template_string("""
     <div class="grid">
-      {% for table in tables %}
+    {% for table in tables %}
       <div class="card">
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
           <h3 style="margin:0">{{ table.name }}</h3>
-          {% if table.status == 'Libre' %}<span class="badge free">Libre</span>{% else %}<span class="badge busy">Ocupada</span>{% endif %}
+          {% if table.status == 'Libre' %}
+            <span class="badge free">Libre</span>
+          {% else %}
+            <span class="badge busy">Ocupada</span>
+          {% endif %}
         </div>
+
         <p><strong>Mesero:</strong> {{ table.waiter or '-' }}</p>
         <p><strong>Abierta:</strong> {{ table.opened_at or '-' }}</p>
         <p><strong>Total:</strong> {{ money(table_total(table)) }}</p>
+
         {% if table.status == 'Libre' %}
           <form method="post">
             <input type="hidden" name="action" value="open_table">
             <input type="hidden" name="table_id" value="{{ table.id }}">
-            <div class="form-group"><label>Mesero</label>
-              <select name="waiter" required>{% for waiter in config.waiters %}<option value="{{ waiter }}">{{ waiter }}</option>{% endfor %}</select>
+            <div class="form-group">
+              <label>Mesero</label>
+              <select name="waiter" required>
+                {% for waiter in config.waiters %}
+                  <option value="{{ waiter }}">{{ waiter }}</option>
+                {% endfor %}
+              </select>
             </div>
             <button type="submit" class="green">Abrir mesa</button>
           </form>
@@ -420,46 +427,64 @@ for item in config["menu"]:
               <input type="hidden" name="table_id" value="{{ table.id }}">
               <button type="submit" class="orange">Enviar a cocina</button>
             </form>
-            <a class="btn gray" href="{{ url_for('caja_view') }}">Ir a caja</a>
           </div>
-          <hr>
-          <form method="post">
+
+          <form method="post" style="margin-top:12px">
             <input type="hidden" name="action" value="add_item">
             <input type="hidden" name="table_id" value="{{ table.id }}">
-            <div class="form-group"><label>Producto</label>
+            <div class="form-group">
+              <label>Producto</label>
               <select name="item_name" required>
                 {% for category, items in menu_by_category.items() %}
-                  <optgroup label="{{ category }}">{% for item in items %}<option value="{{ item.name }}">{{ item.name }} - {{ money(item.price) }}</option>{% endfor %}</optgroup>
+                  <optgroup label="{{ category }}">
+                    {% for item in items %}
+                      <option value="{{ item.name }}">{{ item.name }} - {{ money(item.price) }}</option>
+                    {% endfor %}
+                  </optgroup>
                 {% endfor %}
               </select>
             </div>
-            <div class="form-group"><label>Cantidad</label><input type="number" name="qty" value="1" min="1" required></div>
+            <div class="form-group">
+              <label>Cantidad</label>
+              <input type="number" name="qty" min="1" value="1" required>
+            </div>
             <button type="submit">Agregar producto</button>
           </form>
+
           {% if table["items"] %}
-            <table><thead><tr><th>Producto</th><th>Cant.</th><th>Estado</th><th>Subtotal</th></tr></thead><tbody>
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Cant.</th>
+                <th>Estado</th>
+                <th>Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
               {% for item in table["items"] %}
-                <tr>
-                  <td>{{ item.name }}</td><td>{{ item.qty }}</td>
-                  <td>{% if item.status == 'servido' %}<span class="badge ready">Listo</span>{% elif item.status == 'en_cocina' %}<span class="badge pending">En cocina</span>{% else %}<span class="badge busy">Pendiente</span>{% endif %}</td>
-                  <td>{{ money(item_subtotal(item)) }}</td>
-                </tr>
+              <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.qty }}</td>
+                <td>
+                  {% if item.status == 'servido' %}
+                    <span class="badge ready">Listo</span>
+                  {% else %}
+                    <span class="badge pending">Pendiente</span>
+                  {% endif %}
+                </td>
+                <td>{{ money(item_subtotal(item)) }}</td>
+              </tr>
               {% endfor %}
-            </tbody></table>
-            <form method="post" style="margin-top:12px">
-              <input type="hidden" name="action" value="remove_item">
-              <input type="hidden" name="table_id" value="{{ table.id }}">
-              <div class="form-group"><label>Eliminar producto</label>
-                <select name="item_name" required>{% for item in table.items %}<option value="{{ item.name }}">{{ item.name }}</option>{% endfor %}</select>
-              </div>
-              <button type="submit" class="red">Eliminar producto</button>
-            </form>
-          {% else %}<p class="small">Todavía no hay productos.</p>{% endif %}
+            </tbody>
+          </table>
+          {% endif %}
         {% endif %}
       </div>
-      {% endfor %}
+    {% endfor %}
     </div>
     """, tables=tables, config=config, menu_by_category=menu_by_category, table_total=table_total, money=money, item_subtotal=item_subtotal)
+
     return render_page("Meseros", content, message, error)
 
 @app.route("/cocina", methods=["GET", "POST"])
