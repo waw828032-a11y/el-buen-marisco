@@ -743,7 +743,6 @@ def reports_view():
         month_sales=month_sales,
         closures=closures,
     )
-
 closures = []
 
 content = """
