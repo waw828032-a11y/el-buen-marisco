@@ -88,20 +88,18 @@ DEFAULT_CONFIG = {
 }
 
 
-def build_default_tables(count):
-    return [
-        {
-            "id": i,
-            "name": f"Mesa {i}",
-            "status": "Libre",
-            "waiter": "",
-            "opened_at": "",
-            "items": [],
-            "sent_to_kitchen": False,
-            "printed": False,
-        }
-        for i in range(1, count + 1)
-    ]
+default_tables = [
+    {
+        "id": i,
+        "name": f"Mesa {i}",
+        "status": "Libre",
+        "waiter": "",
+        "items": [],
+        "sent_to_kitchen": False,
+        "opened_at": ""
+    }
+    for i in range(1, config["tables_count"] + 1)
+]
 
 
 def save_json(path: Path, data):
@@ -135,23 +133,45 @@ def load_config():
 
 def load_tables():
     config = load_config()
-    tables = load_json(TABLES_FILE, build_default_tables(config["tables_count"]))
-    expected = config["tables_count"]
-    if len(tables) != expected:
-        old_by_id = {t.get("id"): t for t in tables}
-        tables = build_default_tables(expected)
-        for t in tables:
-            old = old_by_id.get(t["id"])
-            if old:
-                t.update({
-                    "status": old.get("status", "Libre"),
-                    "waiter": old.get("waiter", ""),
-                    "opened_at": old.get("opened_at", ""),
-                    "items": old.get("items", []),
-                    "sent_to_kitchen": old.get("sent_to_kitchen", False),
-                    "printed": old.get("printed", False),
-                })
-        save_json(TABLES_FILE, tables)
+    default_tables = [
+        {
+            "id": i,
+            "name": f"Mesa {i}",
+            "status": "Libre",
+            "waiter": "",
+            "items": [],
+            "sent_to_kitchen": False,
+            "opened_at": ""
+        }
+        for i in range(1, config["tables_count"] + 1)
+    ]
+
+    tables = load_json(TABLES_FILE, default_tables)
+
+    changed = False
+    for i, table in enumerate(tables):
+        if "name" not in table:
+            table["name"] = f"Mesa {table.get('id', i+1)}"
+            changed = True
+        if "status" not in table:
+            table["status"] = "Libre"
+            changed = True
+        if "waiter" not in table:
+            table["waiter"] = ""
+            changed = True
+        if "items" not in table:
+            table["items"] = []
+            changed = True
+        if "sent_to_kitchen" not in table:
+            table["sent_to_kitchen"] = False
+            changed = True
+        if "opened_at" not in table:
+            table["opened_at"] = ""
+            changed = True
+
+    if changed:
+        save_tables(tables)
+
     return tables
 
 
