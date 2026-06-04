@@ -15,9 +15,18 @@ SALES_FILE = DATA_DIR / "sales.json"
 CLOSURES_FILE = DATA_DIR / "closures.json"
 
 DEFAULT_CONFIG = {
-    "restaurant_name": "Restaurante El Buen Marisco",
-    "tables_count": 12,
-    "waiters": ["Mesero 1", "Mesero 2"],
+    "restaurant_name": "Club Mar y Tierra",
+    "tables_count": 20,
+    "waiters": [
+    "MESE1",
+    "MESE2",
+    "MESE3",
+    "MESE4",
+    "MESE5",
+    "MESE6",
+    "MESE7",
+    "MESE8"
+],
     "menu": [
         {"name": "Camarones al Ajillo", "price": 65, "category": "Camarones"},
         {"name": "Camarones Chipotle", "price": 65, "category": "Camarones"},
