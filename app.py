@@ -3,7 +3,17 @@ from datetime import datetime, date
 from pathlib import Path
 from flask import Flask, request, redirect, url_for, render_template_string, abort
 
+from flask import Flask, request, redirect, url_for, render_template_string, abort, session
+
 app = Flask(__name__)
+
+app.secret_key = "clubmarytierra2026"
+
+ADMIN_USER = "admin"
+ADMIN_PASS = "123456"
+
+MESERO_USER = "mesero"
+MESERO_PASS = "123456"
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -312,8 +322,78 @@ def render_page(title, content, message="", error=""):
 
 @app.route("/")
 def home():
-    return redirect(url_for("meseros_view"))
+    return redirect(url_for("login"))
+@app.route("/login", methods=["GET", "POST"])
+def login():
 
+    error = ""
+
+    if request.method == "POST":
+
+        usuario = request.form.get("usuario")
+        password = request.form.get("password")
+
+        if usuario == ADMIN_USER and password == ADMIN_PASS:
+            session["rol"] = "admin"
+            return redirect(url_for("meseros_view"))
+
+        elif usuario == MESERO_USER and password == MESERO_PASS:
+
+            mesero = request.form.get("mesero")
+
+            if not mesero:
+                error = "Seleccione un mesero"
+            else:
+                session["rol"] = "mesero"
+                session["mesero"] = mesero
+                return redirect(url_for("meseros_view"))
+
+        else:
+            error = "Usuario o contraseña incorrectos"
+
+    config = load_config()
+
+    return render_template_string("""
+    <html>
+    <head>
+    <title>Login</title>
+    </head>
+    <body style="background:#0f172a;color:white;font-family:Arial;padding:50px">
+
+        <h1>Club Mar y Tierra</h1>
+
+        <form method="post">
+
+            <p>Usuario</p>
+            <input name="usuario">
+
+            <p>Contraseña</p>
+            <input type="password" name="password">
+
+            <p>Mesero (solo para meseros)</p>
+
+            <select name="mesero">
+                <option value="">Seleccione</option>
+                {% for m in config.waiters %}
+                <option value="{{m}}">{{m}}</option>
+                {% endfor %}
+            </select>
+
+            <br><br>
+
+            <button type="submit">
+                Ingresar
+            </button>
+
+            <p style="color:red">
+                {{error}}
+            </p>
+
+        </form>
+
+    </body>
+    </html>
+    """, error=error, config=config)
 @app.route("/meseros", methods=["GET", "POST"])
 def meseros_view():
     tables = load_tables()
