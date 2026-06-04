@@ -14,6 +14,11 @@ ADMIN_PASS = "123456"
 
 MESERO_USER = "mesero"
 MESERO_PASS = "123456"
+COCINA_USER = "cocina"
+COCINA_PASS = "123456"
+
+CAJA_USER = "caja"
+CAJA_PASS = "123456"
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -300,11 +305,25 @@ table{width:100%;border-collapse:collapse;margin-top:10px} th,td{padding:10px;bo
 </head>
 <body>
 <div class="nav">
-  <a href="{{ url_for('meseros_view') }}">Meseros</a>
-  <a href="{{ url_for('cocina_view') }}">Cocina</a>
-  <a href="{{ url_for('caja_view') }}">Caja</a>
-  <a href="{{ url_for('cierre_view') }}">Cierre</a>
-  <a href="{{ url_for('configurar_view') }}">Configurar</a>
+
+{% if session.get('rol') == 'admin' %}
+    <a href="{{ url_for('meseros_view') }}">Meseros</a>
+    <a href="{{ url_for('cocina_view') }}">Cocina</a>
+    <a href="{{ url_for('caja_view') }}">Caja</a>
+    <a href="{{ url_for('cierre_view') }}">Cierre</a>
+    <a href="{{ url_for('configurar_view') }}">Configurar</a>
+
+{% elif session.get('rol') == 'mesero' %}
+    <a href="{{ url_for('meseros_view') }}">Meseros</a>
+
+{% elif session.get('rol') == 'cocina' %}
+    <a href="{{ url_for('cocina_view') }}">Cocina</a>
+
+{% elif session.get('rol') == 'caja' %}
+    <a href="{{ url_for('caja_view') }}">Caja</a>
+
+{% endif %}
+
 </div>
 <div class="container">
   <h1>{{ title }}</h1>
@@ -338,6 +357,13 @@ def login():
             return redirect(url_for("meseros_view"))
 
         elif usuario == MESERO_USER and password == MESERO_PASS:
+            elif usuario == COCINA_USER and password == COCINA_PASS:
+    session["rol"] = "cocina"
+    return redirect(url_for("cocina_view"))
+
+elif usuario == CAJA_USER and password == CAJA_PASS:
+    session["rol"] = "caja"
+    return redirect(url_for("caja_view"))
 
             mesero = request.form.get("mesero")
 
@@ -682,7 +708,10 @@ def caja_view():
     content = render_template_string("""
    {% if open_tables %}<div class="grid">{% for table in open_tables %}
       <div class="card">
-        <h3>{{ table.name }}</h3><p><strong>Mesero:</strong> {{ table.waiter }}</p><p><strong>Total:</strong> {{ money(table_total(table)) }}</p>
+    <h3>{{ table.name }}</h3>
+<p><strong>Mesero:</strong> {{ table.waiter }}</p>
+<p><strong>Estado:</strong> 🟡 Pendiente de cobro</p>
+<p><strong>Total:</strong> {{ money(table_total(table)) }}</p>
         <table><thead><tr><th>Producto</th><th>Cant.</th><th>Subtotal</th></tr></thead><tbody>
         {% for item in table["items"] %}<tr><td>{{ item.name }}</td><td>{{ item.qty }}</td><td>{{ money(item_subtotal(item)) }}</td></tr>{% endfor %}
         </tbody></table>
