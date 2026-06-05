@@ -354,6 +354,7 @@ def login():
         error = "Seleccione un mesero"
     else:
         session["rol"] = "mesero"
+        print("ROL MESERO ACTIVADO")
         session["mesero"] = mesero
         return redirect(url_for("meseros_view"))
 
