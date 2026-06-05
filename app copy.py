@@ -347,19 +347,19 @@ def login():
             session["rol"] = "admin"
             return redirect(url_for("meseros_view"))
 
-        elif usuario == MESERO_USER and password == MESERO_PASS:
+      elif usuario == MESERO_USER and password == MESERO_PASS:
 
-            mesero = request.form.get("mesero")
+    mesero = request.form.get("mesero")
 
-            if not mesero:
-                error = "Seleccione un mesero"
-            else:
-                session["rol"] = "mesero"
-                session["mesero"] = mesero
-                return redirect(url_for("meseros_view"))
+    if not mesero:
+        error = "Seleccione un mesero"
+    else:
+        session["rol"] = "mesero"
+        session["mesero"] = mesero
+        return redirect(url_for("meseros_view"))
 
-        else:
-            error = "Usuario o contraseña incorrectos"
+else:
+    error = "Usuario o contraseña incorrectos"  
 
     config = load_config()
 
