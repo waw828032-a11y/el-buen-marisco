@@ -328,6 +328,7 @@ table{width:100%;border-collapse:collapse;margin-top:10px} th,td{padding:10px;bo
     <a href="{{ url_for('meseros_view') }}">Meseros</a>
     <a href="{{ url_for('cocina_view') }}">Cocina</a>
     <a href="{{ url_for('caja_view') }}">Caja</a>
+    <a href="{{ url_for('piscina_view') }}">Piscina</a>
 {% endif %}
 
 </div>
