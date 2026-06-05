@@ -218,6 +218,21 @@ def save_tables(tables):
     save_json(TABLES_FILE, tables)
 
 def load_sales():
+    POOL_FILE = DATA_DIR / "pool_sales.json"
+
+def load_pool_sales():
+    if not POOL_FILE.exists():
+        return []
+    try:
+        return json.loads(POOL_FILE.read_text(encoding="utf-8"))
+    except:
+        return []
+
+def save_pool_sales(data):
+    POOL_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
     sales = load_json(SALES_FILE, [])
     return sales if isinstance(sales, list) else []
 
@@ -305,6 +320,7 @@ table{width:100%;border-collapse:collapse;margin-top:10px} th,td{padding:10px;bo
     <a href="{{ url_for('meseros_view') }}">Meseros</a>
     <a href="{{ url_for('cocina_view') }}">Cocina</a>
     <a href="{{ url_for('caja_view') }}">Caja</a>
+    <a href="{{ url_for('piscina_view') }}">Piscina</a>
     <a href="{{ url_for('cierre_view') }}">Cierre</a>
     <a href="{{ url_for('configurar_view') }}">Configurar</a>
 
@@ -628,6 +644,45 @@ def cocina_view():
     {% endfor %}</div>{% else %}<div class="card"><p>No hay pedidos pendientes en cocina.</p></div>{% endif %}
     """, rows=pending_rows)
     return render_page("Cocina", content, message, error)
+@app.route("/piscina", methods=["GET", "POST"])
+def piscina_view():
+
+    total = 0
+
+    if request.method == "POST":
+        adultos = int(request.form.get("adultos", "0"))
+        ninos = int(request.form.get("ninos", "0"))
+
+        total = (adultos * 20) + (ninos * 15)
+
+        return redirect(
+            url_for(
+                "piscina_view",
+                ok=f"Ingreso registrado: Q{total:.2f}"
+            )
+        )
+
+    content = render_template_string("""
+    <div class="card">
+        <h3>Piscina</h3>
+
+        <div class="form-group">
+            <label>Adultos (Q20)</label>
+            <input type="number" name="adultos" value="0" min="0" form="poolform">
+        </div>
+
+        <div class="form-group">
+            <label>Niños (Q15)</label>
+            <input type="number" name="ninos" value="0" min="0" form="poolform">
+        </div>
+
+        <form id="poolform" method="post">
+            <button type="submit" class="green">Agregar</button>
+        </form>
+    </div>
+    """)
+
+    return render_page("Piscina", content, message=request.args.get("ok","")) 
 
 @app.route("/caja", methods=["GET", "POST"])
 def caja_view():
@@ -732,6 +787,7 @@ def ticket_view(table_id):
 def cierre_view():
     sales = load_sales()
     closures = load_closures()
+    pool_sales = load_pool_sales()
     message = request.args.get("ok", "")
     error = request.args.get("err", "")
     today = date.today().isoformat()
@@ -740,6 +796,16 @@ def cierre_view():
     cash_total = round(sum(float(s.get("cash_amount", 0)) for s in today_sales), 2)
     card_total = round(sum(float(s.get("card_amount", 0)) for s in today_sales), 2)
     beer_total = sum(int(s.get("beer_count", 0)) for s in today_sales)
+    today_pool = [p for p in pool_sales if p.get("date") == today]
+
+pool_adults = sum(int(p.get("adultos", 0)) for p in today_pool)
+
+pool_children = sum(int(p.get("ninos", 0)) for p in today_pool)
+
+pool_total = round(
+    sum(float(p.get("total", 0)) for p in today_pool),
+    2
+)
     top_products_map, waiter_map = {}, {}
     for sale in today_sales:
         waiter = sale.get("waiter", "Sin mesero")
