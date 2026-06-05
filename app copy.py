@@ -300,11 +300,21 @@ table{width:100%;border-collapse:collapse;margin-top:10px} th,td{padding:10px;bo
 </head>
 <body>
 <div class="nav">
-  <a href="{{ url_for('meseros_view') }}">Meseros</a>
-  <a href="{{ url_for('cocina_view') }}">Cocina</a>
-  <a href="{{ url_for('caja_view') }}">Caja</a>
-  <a href="{{ url_for('cierre_view') }}">Cierre</a>
-  <a href="{{ url_for('configurar_view') }}">Configurar</a>
+  <div class="nav">
+
+{% if session.get('rol') == 'admin' %}
+    <a href="{{ url_for('meseros_view') }}">Meseros</a>
+    <a href="{{ url_for('cocina_view') }}">Cocina</a>
+    <a href="{{ url_for('caja_view') }}">Caja</a>
+    <a href="{{ url_for('cierre_view') }}">Cierre</a>
+    <a href="{{ url_for('configurar_view') }}">Configurar</a>
+
+{% elif session.get('rol') == 'mesero' %}
+    <a href="{{ url_for('meseros_view') }}">Meseros</a>
+    <a href="{{ url_for('cocina_view') }}">Cocina</a>
+    <a href="{{ url_for('caja_view') }}">Caja</a>
+{% endif %}
+
 </div>
 <div class="container">
   <h1>{{ title }}</h1>
