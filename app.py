@@ -347,9 +347,15 @@ def login():
             return redirect(url_for("meseros_view"))
 
         elif usuario == MESERO_USER and password == MESERO_PASS:
-            elif usuario == COCINA_USER and password == COCINA_PASS:
-    session["rol"] = "cocina"
-    return redirect(url_for("cocina_view"))
+           
+            mesero = request.form.get("mesero")
+
+    if not mesero:
+        error = "Seleccione un mesero"
+    else:
+        session["rol"] = "mesero"
+        session["mesero"] = mesero
+        return redirect(url_for("meseros_view"))
 
 elif usuario == CAJA_USER and password == CAJA_PASS:
     session["rol"] = "caja"
