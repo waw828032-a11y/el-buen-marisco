@@ -14,11 +14,6 @@ ADMIN_PASS = "123456"
 
 MESERO_USER = "mesero"
 MESERO_PASS = "123456"
-COCINA_USER = "cocina"
-COCINA_PASS = "123456"
-
-CAJA_USER = "caja"
-CAJA_PASS = "123456"
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -315,13 +310,8 @@ table{width:100%;border-collapse:collapse;margin-top:10px} th,td{padding:10px;bo
 
 {% elif session.get('rol') == 'mesero' %}
     <a href="{{ url_for('meseros_view') }}">Meseros</a>
-
-{% elif session.get('rol') == 'cocina' %}
     <a href="{{ url_for('cocina_view') }}">Cocina</a>
-
-{% elif session.get('rol') == 'caja' %}
     <a href="{{ url_for('caja_view') }}">Caja</a>
-
 {% endif %}
 
 </div>
